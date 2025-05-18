@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Scanner Cripto Ultra Avançado</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    h1 { color: #333; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f4f4f4; }
+    tr[class^="score-"] { transition: background 0.5s; }
+    tr.score-10 { background-color: #d9ead3; font-weight: bold; }
+    tr.score-12 { background-color: #b6d7a8; font-weight: bold; }
+    tr.score-14 { background-color: #93c47d; font-weight: bold; }
+    tr.score-15 { background-color: #6aa84f; font-weight: bold; color: white; }
+  </style>
+</head>
+<body>
+  <h1>Scanner Cripto Ultra Avançado</h1>
+  <p>Detector de oportunidades com múltiplos sinais técnicos, gráficos e de volume.</p>
+  <table id="tabela">
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Preço</th>
+        <th>Score</th>
+        <th>Explicação</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    const TOTAL_PAGINAS = 3;
+    const TELEGRAM_TOKEN = '7149610493:AAE5SwHYZEWCikEPa2_gXnv5BkOkaE2NDpM';
+    const TELEGRAM_CHAT_ID = '6656069569';
+
+    function calcularRSI(prices) {
+      let ganhos = 0, perdas = 0;
+      for (let i = 1; i <= 14; i++) {
+        const diff = prices[i] - prices[i - 1];
+        if (diff >= 0) ganhos += diff;
+        else perdas -= diff;
+      }
+      const rs = ganhos / perdas;
+      return 100 - (100 / (1 + rs));
+    }
+
+    function calcularMedia(precos, periodo) {
+      const slice = precos.slice(-periodo);
+      const soma = slice.reduce((acc, val) => acc + val, 0);
+      return soma / periodo;
+    }
+
+    function calcularMACD(prices) {
+      const ema12 = calcularMedia(prices, 12);
+      const ema26 = calcularMedia(prices, 26);
+      return ema12 - ema26;
+    }
+
+    function calcularADX(prices) {
+      const diffs = prices.slice(-14).map((v, i) => Math.abs(prices[i + 1] - v));
+      const avg = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+      return avg > 0.02 ? 25 : 10;
+    }
+
+    function calcularOBV(prices) {
+      let obv = 0;
+      for (let i = 1; i < prices.length; i++) {
+        obv += prices[i] > prices[i - 1] ? 1 : prices[i] < prices[i - 1] ? -1 : 0;
+      }
+      return obv;
+    }
+
+    function detectarBollinger(prices) {
+      const media20 = calcularMedia(prices, 20);
+      const std = Math.sqrt(prices.slice(-20).reduce((acc, val) => acc + Math.pow(val - media20, 2), 0) / 20);
+      const ultima = prices[prices.length - 1];
+      return ultima < media20 - 2 * std ? 'Bollinger Inferior' : null;
+    }
+
+    function detectarPadrao(precos) {
+      const len = precos.length;
+      const a = precos[len - 5], b = precos[len - 4], c = precos[len - 3], d = precos[len - 2], e = precos[len - 1];
+      if (a > b && c > b && c > d && e > d) return 'Fundo Duplo';
+      if (a > b && b > c && c > d && d < e) return 'Cunha Descendente';
+      if (a > b && b > c && c < d && d < e && d > b) return 'Xícara e Alça';
+      return null;
+    }
+
+    function detectarCandleAltista(precos) {
+      const penultimo = precos[precos.length - 2];
+      const ultimo = precos[precos.length - 1];
+      return ultimo > penultimo ? 'Candle Altista' : null;
+    }
+
+    function detectarTendencia(precos) {
+      const ultimos = precos.slice(-6);
+      return ultimos[0] < ultimos[1] && ultimos[1] < ultimos[2] && ultimos[2] < ultimos[3] ? 'Tendência Confirmada' : null;
+    }
+
+    function detectarVolumeSpike(volume, volumes) {
+      const media = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+      return volume > 2 * media ? 'Volume Anormal' : null;
+    }
+
+    function enviarTelegram(mensagem) {
+      fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: mensagem })
+      });
+    }
+
+    async function buscarMoedas() {
+      const tabela = document.querySelector('#tabela tbody');
+      tabela.innerHTML = '';
+
+      for (let pagina = 1; pagina <= TOTAL_PAGINAS; pagina++) {
+        const res = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=brl&order=market_cap_asc&per_page=100&page=${pagina}&sparkline=true&price_change_percentage=24h`);
+        const dados = await res.json();
+
+        for (const moeda of dados) {
+          const preco = moeda.current_price;
+          const precos = moeda.sparkline_in_7d.price;
+          if (!precos || precos.length < 30) continue;
+
+          const ultimosPrecos = precos.slice(-30);
+          const ultimosVolumes = Array(30).fill(moeda.total_volume / 30);
+
+          const sinais = [];
+          let score = 0;
+
+          const rsi = calcularRSI(ultimosPrecos);
+          if (rsi < 35) { score++; sinais.push('RSI < 35'); }
+
+          if (moeda.total_volume > 1000000) { score++; sinais.push('Volume alto'); }
+
+          const padrao = detectarPadrao(ultimosPrecos);
+          if (padrao) { score += 2; sinais.push(padrao); }
+
+          const ma9 = calcularMedia(ultimosPrecos, 9);
+          const ma21 = calcularMedia(ultimosPrecos, 21);
+          if (ma9 > ma21) { score += 2; sinais.push('MA9 > MA21'); }
+
+          const macd = calcularMACD(ultimosPrecos);
+          if (macd > 0) { score += 2; sinais.push('MACD positivo'); }
+
+          const adx = calcularADX(ultimosPrecos);
+          if (adx > 20) { score += 2; sinais.push('ADX > 20'); }
+
+          const obv = calcularOBV(ultimosPrecos);
+          if (obv > 0) { score += 2; sinais.push('OBV positivo'); }
+
+          const boll = detectarBollinger(ultimosPrecos);
+          if (boll) { score++; sinais.push(boll); }
+
+          const candle = detectarCandleAltista(ultimosPrecos);
+          if (candle) { score++; sinais.push(candle); }
+
+          const tendencia = detectarTendencia(ultimosPrecos);
+          if (tendencia) { score++; sinais.push(tendencia); }
+
+          const volumeSpike = detectarVolumeSpike(moeda.total_volume, ultimosVolumes);
+          if (volumeSpike) { score++; sinais.push(volumeSpike); }
+
+          const linha = document.createElement('tr');
+          linha.classList.add(`score-${Math.min(score, 15)}`);
+          linha.innerHTML = `<td>${moeda.name}</td><td>R$ ${preco.toFixed(2)}</td><td>${score}</td><td>${sinais.join(', ')}</td>`;
+          tabela.appendChild(linha);
+
+          if (score >= 10) {
+            const msg = `🚨 Entrada técnica forte!\nMoeda: ${moeda.name}\nPreço: R$ ${preco.toFixed(2)}\nScore: ${score}\nSinais: ${sinais.join(', ')}`;
+            enviarTelegram(msg);
+          }
+        }
+      }
+    }
+
+    buscarMoedas();
+    setInterval(buscarMoedas, 120000);
+  </script>
+</body>
+</html>
