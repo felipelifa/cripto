@@ -12,8 +12,8 @@
     tr[class^="score-"] { transition: background 0.5s; }
     tr.score-10 { background-color: #d9ead3; font-weight: bold; }
     tr.score-12 { background-color: #b6d7a8; font-weight: bold; }
-    tr.score-14 { background-color: #93c47d; font-weight: bold; }
-    tr.score-15 { background-color: #6aa84f; font-weight: bold; color: white; }
+    tr.score-14, tr.score-15 { background-color: #6aa84f; font-weight: bold; color: white; }
+    .destaque { background-color: #ffd966 !important; color: #000; }
   </style>
 </head>
 <body>
@@ -167,6 +167,8 @@
 
           const linha = document.createElement('tr');
           linha.classList.add(`score-${Math.min(score, 15)}`);
+          if (score >= 12) linha.classList.add('destaque');
+
           linha.innerHTML = `<td>${moeda.name}</td><td>R$ ${preco.toFixed(2)}</td><td>${score}</td><td>${sinais.join(', ')}</td>`;
           tabela.appendChild(linha);
 
