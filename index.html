@@ -35,6 +35,7 @@
     const TOTAL_PAGINAS = 3;
     const TELEGRAM_TOKEN = '7149610493:AAE5SwHYZEWCikEPa2_gXnv5BkOkaE2NDpM';
     const TELEGRAM_CHAT_ID = '6656069569';
+    const alertados = {};
 
     function calcularRSI(prices) {
       let ganhos = 0, perdas = 0;
@@ -134,7 +135,6 @@
 
           const rsi = calcularRSI(ultimosPrecos);
           if (rsi < 35) { score++; sinais.push('RSI < 35'); }
-
           if (moeda.total_volume > 1000000) { score++; sinais.push('Volume alto'); }
 
           const padrao = detectarPadrao(ultimosPrecos);
@@ -173,8 +173,12 @@
           tabela.appendChild(linha);
 
           if (score >= 10) {
-            const msg = `🚨 Entrada técnica forte!\nMoeda: ${moeda.name}\nPreço: R$ ${preco.toFixed(2)}\nScore: ${score}\nSinais: ${sinais.join(', ')}`;
-            enviarTelegram(msg);
+            const id = moeda.name.toLowerCase();
+            if (!alertados[id] || alertados[id] < score) {
+              alertados[id] = score;
+              const msg = `🚨 Entrada técnica forte!\nMoeda: ${moeda.name}\nPreço: R$ ${preco.toFixed(2)}\nScore: ${score}\nSinais: ${sinais.join(', ')}`;
+              enviarTelegram(msg);
+            }
           }
         }
       }
