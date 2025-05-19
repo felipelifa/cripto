@@ -114,78 +114,97 @@
       });
     }
 
-    async function buscarMoedas() {
-      const tabela = document.querySelector('#tabela tbody');
-      tabela.innerHTML = '';
+  async function buscarMoedasBinance() {
+  const tabela = document.querySelector('#tabela tbody');
+  tabela.innerHTML = '';
 
-      for (let pagina = 1; pagina <= TOTAL_PAGINAS; pagina++) {
-        const res = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=brl&order=market_cap_asc&per_page=100&page=${pagina}&sparkline=true&price_change_percentage=24h`);
-        const dados = await res.json();
+  const exchangeInfo = await fetch('https://api.binance.com/api/v3/exchangeInfo').then(res => res.json());
+  const usdtPairs = exchangeInfo.symbols
+    .filter(s => s.symbol.endsWith('USDT') && s.status === 'TRADING')
+    .slice(0, 50); // Limite controlado
 
-        for (const moeda of dados) {
-          const preco = moeda.current_price;
-          const precos = moeda.sparkline_in_7d.price;
-          if (!precos || precos.length < 30) continue;
+  for (const pair of usdtPairs) {
+    const symbol = pair.symbol;
+    const baseAsset = pair.baseAsset;
 
-          const ultimosPrecos = precos.slice(-30);
-          const ultimosVolumes = Array(30).fill(moeda.total_volume / 30);
+    try {
+      const ticker = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`).then(res => res.json());
+      const klines = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`).then(res => res.json());
+      const prices = klines.map(k => parseFloat(k[4]));
+      const volumes = klines.map(k => parseFloat(k[5]));
 
-          const sinais = [];
-          let score = 0;
+      if (prices.length < 30) continue;
 
-          const rsi = calcularRSI(ultimosPrecos);
-          if (rsi < 35) { score++; sinais.push('RSI < 35'); }
-          if (moeda.total_volume > 1000000) { score++; sinais.push('Volume alto'); }
+      const sinais = [];
+      let score = 0;
 
-          const padrao = detectarPadrao(ultimosPrecos);
-          if (padrao) { score += 2; sinais.push(padrao); }
+      const rsi = calcularRSI(prices);
+      if (rsi < 35) { score += 2; sinais.push('RSI < 35'); }
 
-          const ma9 = calcularMedia(ultimosPrecos, 9);
-          const ma21 = calcularMedia(ultimosPrecos, 21);
-          if (ma9 > ma21) { score += 2; sinais.push('MA9 > MA21'); }
+      if (parseFloat(ticker.quoteVolume) > 1000000) { score++; sinais.push('Volume alto'); }
 
-          const macd = calcularMACD(ultimosPrecos);
-          if (macd > 0) { score += 2; sinais.push('MACD positivo'); }
+      const padrao = detectarPadrao(prices);
+      if (padrao === 'Fundo Duplo') { score += 3; sinais.push(padrao); }
+      else if (padrao === 'Xícara e Alça') { score += 3; sinais.push(padrao); }
+      else if (padrao === 'Cunha Descendente') { score += 2; sinais.push(padrao); }
 
-          const adx = calcularADX(ultimosPrecos);
-          if (adx > 20) { score += 2; sinais.push('ADX > 20'); }
+      const ma9 = calcularMedia(prices, 9);
+      const ma21 = calcularMedia(prices, 21);
+      if (ma9 > ma21) { score += 2; sinais.push('MA9 > MA21'); }
 
-          const obv = calcularOBV(ultimosPrecos);
-          if (obv > 0) { score += 2; sinais.push('OBV positivo'); }
+      const macd = calcularMACD(prices);
+      if (macd > 0) { score += 2; sinais.push('MACD positivo'); }
 
-          const boll = detectarBollinger(ultimosPrecos);
-          if (boll) { score++; sinais.push(boll); }
+      const adx = calcularADX(prices);
+      if (adx > 20) { score += 2; sinais.push('ADX > 20'); }
 
-          const candle = detectarCandleAltista(ultimosPrecos);
-          if (candle) { score++; sinais.push(candle); }
+      const obv = calcularOBV(prices);
+      if (obv > 0) { score += 2; sinais.push('OBV positivo'); }
 
-          const tendencia = detectarTendencia(ultimosPrecos);
-          if (tendencia) { score++; sinais.push(tendencia); }
+      const boll = detectarBollinger(prices);
+      if (boll) { score += 2; sinais.push(boll); }
 
-          const volumeSpike = detectarVolumeSpike(moeda.total_volume, ultimosVolumes);
-          if (volumeSpike) { score++; sinais.push(volumeSpike); }
+      const candle = detectarCandleAltista(prices);
+      if (candle) { score += 2; sinais.push(candle); }
 
-          const linha = document.createElement('tr');
-          linha.classList.add(`score-${Math.min(score, 15)}`);
-          if (score >= 12) linha.classList.add('destaque');
+      const tendencia = detectarTendencia(prices);
+      if (tendencia) { score++; sinais.push(tendencia); }
 
-          linha.innerHTML = `<td>${moeda.name}</td><td>R$ ${preco.toFixed(2)}</td><td>${score}</td><td>${sinais.join(', ')}</td>`;
-          tabela.appendChild(linha);
+      const volumeSpike = detectarVolumeSpike(parseFloat(ticker.quoteVolume), volumes);
+      if (volumeSpike) { score++; sinais.push(volumeSpike); }
 
-          if (score >= 10) {
-            const id = moeda.name.toLowerCase();
-            if (!alertados[id] || alertados[id] < score) {
-              alertados[id] = score;
-              const msg = `🚨 Entrada técnica forte!\nMoeda: ${moeda.name}\nPreço: R$ ${preco.toFixed(2)}\nScore: ${score}\nSinais: ${sinais.join(', ')}`;
-              enviarTelegram(msg);
-            }
-          }
+      if (score >= 10) {
+        const linha = document.createElement('tr');
+        linha.classList.add(`score-${Math.min(score, 15)}`);
+        if (score >= 12) linha.classList.add('destaque');
+
+        linha.innerHTML = `
+          <td>${baseAsset} (${symbol})</td>
+          <td>US$ ${parseFloat(ticker.lastPrice).toFixed(4)}</td>
+          <td>${score}</td>
+          <td>${sinais.join(', ')}</td>
+        `;
+        tabela.appendChild(linha);
+
+        const id = symbol.toLowerCase();
+        if (!alertados[id] || alertados[id] < score) {
+          alertados[id] = score;
+          const msg = `🚀 *Oportunidade de Compra Detected!*\n📈 *Moeda:* ${baseAsset} (${symbol})\n💰 *Preço:* US$ ${parseFloat(ticker.lastPrice).toFixed(4)}\n🔥 *Score:* ${score}\n📊 *Sinais:* ${sinais.join(', ')}`;
+          enviarTelegram(msg);
         }
       }
+    } catch (erro) {
+      console.warn(`Erro com ${symbol}:`, erro.message);
     }
+  }
+}
 
-    buscarMoedas();
-    setInterval(buscarMoedas, 120000);
+
+buscarMoedasBinance();
+setInterval(buscarMoedasBinance, 120000);
+
+
+
   </script>
 </body>
 </html>
