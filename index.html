@@ -30,17 +30,20 @@
     </thead>
     <tbody></tbody>
   </table>
-
   <script>
-    const TOTAL_PAGINAS = 3;
     const TELEGRAM_TOKEN = '7149610493:AAE5SwHYZEWCikEPa2_gXnv5BkOkaE2NDpM';
     const TELEGRAM_CHAT_ID = '6656069569';
     const alertados = {};
 
-    function calcularRSI(prices) {
+    function calcularMedia(precos, periodo) {
+      const slice = precos.slice(-periodo);
+      return slice.reduce((a, b) => a + b, 0) / periodo;
+    }
+
+    function calcularRSI(precos) {
       let ganhos = 0, perdas = 0;
       for (let i = 1; i <= 14; i++) {
-        const diff = prices[i] - prices[i - 1];
+        const diff = precos[i] - precos[i - 1];
         if (diff >= 0) ganhos += diff;
         else perdas -= diff;
       }
@@ -48,37 +51,27 @@
       return 100 - (100 / (1 + rs));
     }
 
-    function calcularMedia(precos, periodo) {
-      const slice = precos.slice(-periodo);
-      const soma = slice.reduce((acc, val) => acc + val, 0);
-      return soma / periodo;
+    function calcularMACD(precos) {
+      return calcularMedia(precos, 12) - calcularMedia(precos, 26);
     }
 
-    function calcularMACD(prices) {
-      const ema12 = calcularMedia(prices, 12);
-      const ema26 = calcularMedia(prices, 26);
-      return ema12 - ema26;
+    function calcularADX(precos) {
+      const diffs = precos.slice(-14).map((v, i) => Math.abs(precos[i + 1] - v));
+      return (diffs.reduce((a, b) => a + b, 0) / diffs.length) > 0.02 ? 25 : 10;
     }
 
-    function calcularADX(prices) {
-      const diffs = prices.slice(-14).map((v, i) => Math.abs(prices[i + 1] - v));
-      const avg = diffs.reduce((a, b) => a + b, 0) / diffs.length;
-      return avg > 0.02 ? 25 : 10;
-    }
-
-    function calcularOBV(prices) {
+    function calcularOBV(precos) {
       let obv = 0;
-      for (let i = 1; i < prices.length; i++) {
-        obv += prices[i] > prices[i - 1] ? 1 : prices[i] < prices[i - 1] ? -1 : 0;
+      for (let i = 1; i < precos.length; i++) {
+        obv += precos[i] > precos[i - 1] ? 1 : precos[i] < precos[i - 1] ? -1 : 0;
       }
       return obv;
     }
 
-    function detectarBollinger(prices) {
-      const media20 = calcularMedia(prices, 20);
-      const std = Math.sqrt(prices.slice(-20).reduce((acc, val) => acc + Math.pow(val - media20, 2), 0) / 20);
-      const ultima = prices[prices.length - 1];
-      return ultima < media20 - 2 * std ? 'Bollinger Inferior' : null;
+    function detectarBollinger(precos) {
+      const media20 = calcularMedia(precos, 20);
+      const std = Math.sqrt(precos.slice(-20).reduce((acc, val) => acc + Math.pow(val - media20, 2), 0) / 20);
+      return precos[precos.length - 1] < media20 - 2 * std ? 'Bollinger Inferior' : null;
     }
 
     function detectarPadrao(precos) {
@@ -91,9 +84,7 @@
     }
 
     function detectarCandleAltista(precos) {
-      const penultimo = precos[precos.length - 2];
-      const ultimo = precos[precos.length - 1];
-      return ultimo > penultimo ? 'Candle Altista' : null;
+      return precos[precos.length - 1] > precos[precos.length - 2] ? 'Candle Altista' : null;
     }
 
     function detectarTendencia(precos) {
@@ -113,98 +104,87 @@
         body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: mensagem })
       });
     }
+    async function buscarMoedasBinance() {
+      const tabela = document.querySelector('#tabela tbody');
+      tabela.innerHTML = '';
 
-  async function buscarMoedasBinance() {
-  const tabela = document.querySelector('#tabela tbody');
-  tabela.innerHTML = '';
+      const exchangeInfo = await fetch('https://api.binance.com/api/v3/exchangeInfo').then(res => res.json());
+      const usdtPairs = exchangeInfo.symbols
+        .filter(s => s.symbol.endsWith('USDT') && s.status === 'TRADING')
+        .slice(0, 50); // ajustável
 
-  const exchangeInfo = await fetch('https://api.binance.com/api/v3/exchangeInfo').then(res => res.json());
-  const usdtPairs = exchangeInfo.symbols
-    .filter(s => s.symbol.endsWith('USDT') && s.status === 'TRADING')
-    .slice(0, 50); // Limite controlado
+      for (const pair of usdtPairs) {
+        const symbol = pair.symbol;
+        const baseAsset = pair.baseAsset;
 
-  for (const pair of usdtPairs) {
-    const symbol = pair.symbol;
-    const baseAsset = pair.baseAsset;
+        try {
+          const ticker = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`).then(res => res.json());
+          const klines = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`).then(res => res.json());
+          const prices = klines.map(k => parseFloat(k[4]));
+          const volumes = klines.map(k => parseFloat(k[5]));
 
-    try {
-      const ticker = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`).then(res => res.json());
-      const klines = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`).then(res => res.json());
-      const prices = klines.map(k => parseFloat(k[4]));
-      const volumes = klines.map(k => parseFloat(k[5]));
+          if (prices.length < 30) continue;
 
-      if (prices.length < 30) continue;
+          const sinais = [];
+          let score = 0;
 
-      const sinais = [];
-      let score = 0;
+          const rsi = calcularRSI(prices);
+          if (rsi < 35) { score += 2; sinais.push('RSI < 35'); }
 
-      const rsi = calcularRSI(prices);
-      if (rsi < 35) { score += 2; sinais.push('RSI < 35'); }
+          if (parseFloat(ticker.quoteVolume) > 1000000) { score++; sinais.push('Volume alto'); }
 
-      if (parseFloat(ticker.quoteVolume) > 1000000) { score++; sinais.push('Volume alto'); }
+          const padrao = detectarPadrao(prices);
+          if (padrao) { score += 3; sinais.push(padrao); }
 
-      const padrao = detectarPadrao(prices);
-      if (padrao === 'Fundo Duplo') { score += 3; sinais.push(padrao); }
-      else if (padrao === 'Xícara e Alça') { score += 3; sinais.push(padrao); }
-      else if (padrao === 'Cunha Descendente') { score += 2; sinais.push(padrao); }
+          if (calcularMedia(prices, 9) > calcularMedia(prices, 21)) { score += 2; sinais.push('MA9 > MA21'); }
+          if (calcularMACD(prices) > 0) { score += 2; sinais.push('MACD positivo'); }
+          if (calcularADX(prices) > 20) { score += 2; sinais.push('ADX > 20'); }
+          if (calcularOBV(prices) > 0) { score += 2; sinais.push('OBV positivo'); }
 
-      const ma9 = calcularMedia(prices, 9);
-      const ma21 = calcularMedia(prices, 21);
-      if (ma9 > ma21) { score += 2; sinais.push('MA9 > MA21'); }
+          const boll = detectarBollinger(prices); if (boll) { score += 2; sinais.push(boll); }
+          const candle = detectarCandleAltista(prices); if (candle) { score += 2; sinais.push(candle); }
+          const tendencia = detectarTendencia(prices); if (tendencia) { score++; sinais.push(tendencia); }
+          const volumeSpike = detectarVolumeSpike(parseFloat(ticker.quoteVolume), volumes); if (volumeSpike) { score++; sinais.push(volumeSpike); }
 
-      const macd = calcularMACD(prices);
-      if (macd > 0) { score += 2; sinais.push('MACD positivo'); }
+          const precoAtual = prices[prices.length - 1];
+          const stop = (precoAtual * 0.95).toFixed(4);
+          const alvo = (precoAtual * 1.10).toFixed(4);
 
-      const adx = calcularADX(prices);
-      if (adx > 20) { score += 2; sinais.push('ADX > 20'); }
+          if (score >= 10) {
+            const linha = document.createElement('tr');
+            linha.classList.add(`score-${Math.min(score, 15)}`);
+            if (score >= 12) linha.classList.add('destaque');
 
-      const obv = calcularOBV(prices);
-      if (obv > 0) { score += 2; sinais.push('OBV positivo'); }
+            linha.innerHTML = `
+              <td>${baseAsset} (${symbol})</td>
+              <td>US$ ${precoAtual.toFixed(4)}</td>
+              <td>${score}</td>
+              <td>${sinais.join(', ')}</td>
+            `;
+            tabela.appendChild(linha);
 
-      const boll = detectarBollinger(prices);
-      if (boll) { score += 2; sinais.push(boll); }
-
-      const candle = detectarCandleAltista(prices);
-      if (candle) { score += 2; sinais.push(candle); }
-
-      const tendencia = detectarTendencia(prices);
-      if (tendencia) { score++; sinais.push(tendencia); }
-
-      const volumeSpike = detectarVolumeSpike(parseFloat(ticker.quoteVolume), volumes);
-      if (volumeSpike) { score++; sinais.push(volumeSpike); }
-
-      if (score >= 10) {
-        const linha = document.createElement('tr');
-        linha.classList.add(`score-${Math.min(score, 15)}`);
-        if (score >= 12) linha.classList.add('destaque');
-
-        linha.innerHTML = `
-          <td>${baseAsset} (${symbol})</td>
-          <td>US$ ${parseFloat(ticker.lastPrice).toFixed(4)}</td>
-          <td>${score}</td>
-          <td>${sinais.join(', ')}</td>
-        `;
-        tabela.appendChild(linha);
-
-        const id = symbol.toLowerCase();
-        if (!alertados[id] || alertados[id] < score) {
-          alertados[id] = score;
-          const msg = `🚀 *Oportunidade de Compra Detected!*\n📈 *Moeda:* ${baseAsset} (${symbol})\n💰 *Preço:* US$ ${parseFloat(ticker.lastPrice).toFixed(4)}\n🔥 *Score:* ${score}\n📊 *Sinais:* ${sinais.join(', ')}`;
-          enviarTelegram(msg);
+            const id = symbol.toLowerCase();
+            if (!alertados[id] || alertados[id] < score) {
+              alertados[id] = score;
+              const msg = `🚀 *Oportunidade de Compra Detected!*
+📈 *Moeda:* ${baseAsset} (${symbol})
+💰 *Preço atual:* US$ ${precoAtual.toFixed(4)}
+🔥 *Score:* ${score}
+📊 *Sinais:* ${sinais.join(', ')}
+🎯 *Entrada sugerida:* US$ ${precoAtual.toFixed(4)}
+🛑 *Stop:* US$ ${stop}
+🎯 *Alvo:* US$ ${alvo}`;
+              enviarTelegram(msg);
+            }
+          }
+        } catch (erro) {
+          console.warn(`Erro com ${symbol}:`, erro.message);
         }
       }
-    } catch (erro) {
-      console.warn(`Erro com ${symbol}:`, erro.message);
     }
-  }
-}
 
-
-buscarMoedasBinance();
-setInterval(buscarMoedasBinance, 120000);
-
-
-
+    buscarMoedasBinance();
+    setInterval(buscarMoedasBinance, 30000);
   </script>
 </body>
 </html>
