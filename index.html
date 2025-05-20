@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -18,7 +19,7 @@
 </head>
 <body>
   <h1>Scanner Cripto Ultra Avançado</h1>
-  <p>Detector de oportunidades com múltiplos sinais técnicos, gráficos e de volume.</p>
+  <p>Detector de oportunidades com múltiplos sinais técnicos, análise de contexto e comparação com BTC/ETH.</p>
   <table id="tabela">
     <thead>
       <tr>
@@ -68,19 +69,9 @@
       return obv;
     }
 
-    function detectarBollinger(precos) {
-      const media20 = calcularMedia(precos, 20);
-      const std = Math.sqrt(precos.slice(-20).reduce((acc, val) => acc + Math.pow(val - media20, 2), 0) / 20);
-      return precos[precos.length - 1] < media20 - 2 * std ? 'Bollinger Inferior' : null;
-    }
-
-    function detectarPadrao(precos) {
-      const len = precos.length;
-      const a = precos[len - 5], b = precos[len - 4], c = precos[len - 3], d = precos[len - 2], e = precos[len - 1];
-      if (a > b && c > b && c > d && e > d) return 'Fundo Duplo';
-      if (a > b && b > c && c > d && d < e) return 'Cunha Descendente';
-      if (a > b && b > c && c < d && d < e && d > b) return 'Xícara e Alça';
-      return null;
+    function detectarVolumeSpike(volume, volumes) {
+      const media = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+      return volume > 2 * media ? 'Volume Anormal' : null;
     }
 
     function detectarCandleAltista(precos) {
@@ -92,18 +83,23 @@
       return ultimos[0] < ultimos[1] && ultimos[1] < ultimos[2] && ultimos[2] < ultimos[3] ? 'Tendência Confirmada' : null;
     }
 
-    function detectarVolumeSpike(volume, volumes) {
-      const media = volumes.reduce((a, b) => a + b, 0) / volumes.length;
-      return volume > 2 * media ? 'Volume Anormal' : null;
+    function comportamentoEstavel(precos) {
+      const variacao = Math.abs(precos[precos.length - 1] - precos[precos.length - 5]);
+      return variacao < 0.05 * precos[precos.length - 1];
     }
 
-    function enviarTelegram(mensagem) {
-      fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: mensagem })
-      });
+    async function compararComBTCETH(symbolPrices) {
+      const [btc, eth] = await Promise.all([
+        fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=30").then(res => res.json()),
+        fetch("https://api.binance.com/api/v3/klines?symbol=ETHUSDT&interval=1h&limit=30").then(res => res.json())
+      ]);
+      const btcPrices = btc.map(k => parseFloat(k[4]));
+      const ethPrices = eth.map(k => parseFloat(k[4]));
+      const btcRetorno = (btcPrices.at(-1) - btcPrices[0]) / btcPrices[0];
+      const ethRetorno = (ethPrices.at(-1) - ethPrices[0]) / ethPrices[0];
+      return { btcRetorno, ethRetorno };
     }
+
     async function buscarMoedasBinance() {
       const tabela = document.querySelector('#tabela tbody');
       tabela.innerHTML = '';
@@ -111,42 +107,40 @@
       const exchangeInfo = await fetch('https://api.binance.com/api/v3/exchangeInfo').then(res => res.json());
       const usdtPairs = exchangeInfo.symbols
         .filter(s => s.symbol.endsWith('USDT') && s.status === 'TRADING')
-        .slice(0, 50); // ajustável
+        .slice(0, 50);
+
+      const comparativo = await compararComBTCETH();
 
       for (const pair of usdtPairs) {
         const symbol = pair.symbol;
         const baseAsset = pair.baseAsset;
 
         try {
-          const ticker = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`).then(res => res.json());
-          const klines = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`).then(res => res.json());
+          const [ticker, klines] = await Promise.all([
+            fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`).then(res => res.json()),
+            fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`).then(res => res.json())
+          ]);
           const prices = klines.map(k => parseFloat(k[4]));
           const volumes = klines.map(k => parseFloat(k[5]));
 
           if (prices.length < 30) continue;
+          const retornoAtivo = (prices.at(-1) - prices[0]) / prices[0];
+          if (retornoAtivo < comparativo.btcRetorno && retornoAtivo < comparativo.ethRetorno) continue;
+          if (!comportamentoEstavel(prices)) continue;
 
           const sinais = [];
           let score = 0;
 
-          const rsi = calcularRSI(prices);
-          if (rsi < 35) { score += 2; sinais.push('RSI < 35'); }
-
+          if (calcularRSI(prices) < 35) { score += 2; sinais.push('RSI < 35'); }
           if (parseFloat(ticker.quoteVolume) > 1000000) { score++; sinais.push('Volume alto'); }
-
-          const padrao = detectarPadrao(prices);
-          if (padrao) { score += 3; sinais.push(padrao); }
-
-          if (calcularMedia(prices, 9) > calcularMedia(prices, 21)) { score += 2; sinais.push('MA9 > MA21'); }
           if (calcularMACD(prices) > 0) { score += 2; sinais.push('MACD positivo'); }
           if (calcularADX(prices) > 20) { score += 2; sinais.push('ADX > 20'); }
           if (calcularOBV(prices) > 0) { score += 2; sinais.push('OBV positivo'); }
-
-          const boll = detectarBollinger(prices); if (boll) { score += 2; sinais.push(boll); }
-          const candle = detectarCandleAltista(prices); if (candle) { score += 2; sinais.push(candle); }
+          const spike = detectarVolumeSpike(parseFloat(ticker.quoteVolume), volumes); if (spike) { score++; sinais.push(spike); }
+          const candle = detectarCandleAltista(prices); if (candle) { score++; sinais.push(candle); }
           const tendencia = detectarTendencia(prices); if (tendencia) { score++; sinais.push(tendencia); }
-          const volumeSpike = detectarVolumeSpike(parseFloat(ticker.quoteVolume), volumes); if (volumeSpike) { score++; sinais.push(volumeSpike); }
 
-          const precoAtual = prices[prices.length - 1];
+          const precoAtual = prices.at(-1);
           const stop = (precoAtual * 0.95).toFixed(4);
           const alvo = (precoAtual * 1.10).toFixed(4);
 
@@ -159,8 +153,7 @@
               <td>${baseAsset} (${symbol})</td>
               <td>US$ ${precoAtual.toFixed(4)}</td>
               <td>${score}</td>
-              <td>${sinais.join(', ')}</td>
-            `;
+              <td>${sinais.join(', ')}</td>`;
             tabela.appendChild(linha);
 
             const id = symbol.toLowerCase();
@@ -174,7 +167,11 @@
 🎯 *Entrada sugerida:* US$ ${precoAtual.toFixed(4)}
 🛑 *Stop:* US$ ${stop}
 🎯 *Alvo:* US$ ${alvo}`;
-              enviarTelegram(msg);
+              fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: msg })
+              });
             }
           }
         } catch (erro) {
