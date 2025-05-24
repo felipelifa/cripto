@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <title>Scanner Cripto Ultra Avançado</title>
+  <title>Scanner Cripto Ultra Aprimorado</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; }
     h1 { color: #333; }
@@ -18,8 +17,8 @@
   </style>
 </head>
 <body>
-  <h1>Scanner Cripto Ultra Avançado</h1>
-  <p>Detector de oportunidades com múltiplos sinais técnicos, análise de contexto e comparação com BTC/ETH.</p>
+  <h1>Scanner Cripto Ultra Aprimorado</h1>
+  <p>Detector de oportunidades com sinais técnicos, contexto macro e stops inteligentes.</p>
   <table id="tabela">
     <thead>
       <tr>
@@ -42,13 +41,14 @@
     }
 
     function calcularRSI(precos) {
+      if (precos.length < 15) return 50;
       let ganhos = 0, perdas = 0;
       for (let i = 1; i <= 14; i++) {
         const diff = precos[i] - precos[i - 1];
         if (diff >= 0) ganhos += diff;
         else perdas -= diff;
       }
-      const rs = ganhos / perdas;
+      const rs = ganhos / (perdas || 1);
       return 100 - (100 / (1 + rs));
     }
 
@@ -56,48 +56,28 @@
       return calcularMedia(precos, 12) - calcularMedia(precos, 26);
     }
 
-    function calcularADX(precos) {
+    function calcularADX_simples(precos) {
       const diffs = precos.slice(-14).map((v, i) => Math.abs(precos[i + 1] - v));
       return (diffs.reduce((a, b) => a + b, 0) / diffs.length) > 0.02 ? 25 : 10;
     }
 
-    function calcularOBV(precos) {
+    function calcularOBV(precos, volumes) {
       let obv = 0;
       for (let i = 1; i < precos.length; i++) {
-        obv += precos[i] > precos[i - 1] ? 1 : precos[i] < precos[i - 1] ? -1 : 0;
+        if (precos[i] > precos[i - 1]) obv += volumes[i];
+        else if (precos[i] < precos[i - 1]) obv -= volumes[i];
       }
       return obv;
     }
 
-    function detectarVolumeSpike(volume, volumes) {
-      const media = volumes.reduce((a, b) => a + b, 0) / volumes.length;
-      return volume > 2 * media ? 'Volume Anormal' : null;
+    function ultimoFundo(precos) {
+      let fundo = Math.min(...precos.slice(-10));
+      return fundo;
     }
 
-    function detectarCandleAltista(precos) {
-      return precos[precos.length - 1] > precos[precos.length - 2] ? 'Candle Altista' : null;
-    }
-
-    function detectarTendencia(precos) {
-      const ultimos = precos.slice(-6);
-      return ultimos[0] < ultimos[1] && ultimos[1] < ultimos[2] && ultimos[2] < ultimos[3] ? 'Tendência Confirmada' : null;
-    }
-
-    function comportamentoEstavel(precos) {
-      const variacao = Math.abs(precos[precos.length - 1] - precos[precos.length - 5]);
-      return variacao < 0.05 * precos[precos.length - 1];
-    }
-
-    async function compararComBTCETH(symbolPrices) {
-      const [btc, eth] = await Promise.all([
-        fetch("https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=30").then(res => res.json()),
-        fetch("https://api.binance.com/api/v3/klines?symbol=ETHUSDT&interval=1h&limit=30").then(res => res.json())
-      ]);
-      const btcPrices = btc.map(k => parseFloat(k[4]));
-      const ethPrices = eth.map(k => parseFloat(k[4]));
-      const btcRetorno = (btcPrices.at(-1) - btcPrices[0]) / btcPrices[0];
-      const ethRetorno = (ethPrices.at(-1) - ethPrices[0]) / ethPrices[0];
-      return { btcRetorno, ethRetorno };
+    function ultimoTopo(precos) {
+      let topo = Math.max(...precos.slice(-10));
+      return topo;
     }
 
     async function buscarMoedasBinance() {
@@ -105,11 +85,7 @@
       tabela.innerHTML = '';
 
       const exchangeInfo = await fetch('https://api.binance.com/api/v3/exchangeInfo').then(res => res.json());
-      const usdtPairs = exchangeInfo.symbols
-        .filter(s => s.symbol.endsWith('USDT') && s.status === 'TRADING')
-        .slice(0, 50);
-
-      const comparativo = await compararComBTCETH();
+      const usdtPairs = exchangeInfo.symbols.filter(s => s.symbol.endsWith('USDT') && s.status === 'TRADING').slice(0, 50);
 
       for (const pair of usdtPairs) {
         const symbol = pair.symbol;
@@ -120,13 +96,10 @@
             fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`).then(res => res.json()),
             fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`).then(res => res.json())
           ]);
+
           const prices = klines.map(k => parseFloat(k[4]));
           const volumes = klines.map(k => parseFloat(k[5]));
-
           if (prices.length < 30) continue;
-          const retornoAtivo = (prices.at(-1) - prices[0]) / prices[0];
-          if (retornoAtivo < comparativo.btcRetorno && retornoAtivo < comparativo.ethRetorno) continue;
-          if (!comportamentoEstavel(prices)) continue;
 
           const sinais = [];
           let score = 0;
@@ -134,15 +107,12 @@
           if (calcularRSI(prices) < 35) { score += 2; sinais.push('RSI < 35'); }
           if (parseFloat(ticker.quoteVolume) > 1000000) { score++; sinais.push('Volume alto'); }
           if (calcularMACD(prices) > 0) { score += 2; sinais.push('MACD positivo'); }
-          if (calcularADX(prices) > 20) { score += 2; sinais.push('ADX > 20'); }
-          if (calcularOBV(prices) > 0) { score += 2; sinais.push('OBV positivo'); }
-          const spike = detectarVolumeSpike(parseFloat(ticker.quoteVolume), volumes); if (spike) { score++; sinais.push(spike); }
-          const candle = detectarCandleAltista(prices); if (candle) { score++; sinais.push(candle); }
-          const tendencia = detectarTendencia(prices); if (tendencia) { score++; sinais.push(tendencia); }
+          if (calcularADX_simples(prices) > 20) { score += 2; sinais.push('ADX > 20'); }
+          if (calcularOBV(prices, volumes) > 0) { score += 2; sinais.push('OBV positivo'); }
 
           const precoAtual = prices.at(-1);
-          const stop = (precoAtual * 0.95).toFixed(4);
-          const alvo = (precoAtual * 1.10).toFixed(4);
+          const stop = ultimoFundo(prices).toFixed(4);
+          const alvo = (ultimoTopo(prices) * 1.02).toFixed(4);
 
           if (score >= 10) {
             const linha = document.createElement('tr');
@@ -181,7 +151,7 @@
     }
 
     buscarMoedasBinance();
-    setInterval(buscarMoedasBinance, 30000);
+    setInterval(buscarMoedasBinance, 60000);
   </script>
 </body>
 </html>
