@@ -17,8 +17,8 @@
   </style>
 </head>
 <body>
-  <h1>Scanner Cripto Ultra Aprimorado</h1>
-  <p>Detector de oportunidades com sinais técnicos, contexto macro e stops inteligentes.</p>
+  <h1>Scanner Cripto Ultra Aprimorado com Análise Macro</h1>
+  <p>Detector de oportunidades com sinais técnicos, contexto macro (Diário, Semanal, Mensal) e stops inteligentes.</p>
   <table id="tabela">
     <thead>
       <tr>
@@ -71,13 +71,24 @@
     }
 
     function ultimoFundo(precos) {
-      let fundo = Math.min(...precos.slice(-10));
-      return fundo;
+      return Math.min(...precos.slice(-10));
     }
 
     function ultimoTopo(precos) {
-      let topo = Math.max(...precos.slice(-10));
-      return topo;
+      return Math.max(...precos.slice(-10));
+    }
+
+    async function verificarMacro(symbol) {
+      const timeframes = ['1d', '1w', '1M'];
+      for (const tf of timeframes) {
+        const klines = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${tf}&limit=30`).then(res => res.json());
+        const prices = klines.map(k => parseFloat(k[4]));
+        if (prices.length < 21) return false;
+        const media = calcularMedia(prices, 21);
+        const precoAtual = prices.at(-1);
+        if (precoAtual < media) return false;
+      }
+      return true;
     }
 
     async function buscarMoedasBinance() {
@@ -92,6 +103,9 @@
         const baseAsset = pair.baseAsset;
 
         try {
+          const macroOK = await verificarMacro(symbol);
+          if (!macroOK) continue;
+
           const [ticker, klines] = await Promise.all([
             fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`).then(res => res.json()),
             fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`).then(res => res.json())
