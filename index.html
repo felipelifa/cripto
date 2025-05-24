@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <title>Scanner Cripto Ultra Aprimorado</title>
+  <title>Scanner Cripto Ultra Aprimorado com Análise Macro</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; }
     h1 { color: #333; }
@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>Scanner Cripto Ultra Aprimorado com Análise Macro</h1>
-  <p>Detector de oportunidades com sinais técnicos, contexto macro (Diário, Semanal, Mensal) e stops inteligentes.</p>
+  <p>Detector de oportunidades com sinais técnicos, contexto macro (Diário, Semanal, Mensal) e stops inteligentes. Agora analisando TODAS as moedas da Binance.</p>
   <table id="tabela">
     <thead>
       <tr>
@@ -96,7 +96,7 @@
       tabela.innerHTML = '';
 
       const exchangeInfo = await fetch('https://api.binance.com/api/v3/exchangeInfo').then(res => res.json());
-      const usdtPairs = exchangeInfo.symbols.filter(s => s.symbol.endsWith('USDT') && s.status === 'TRADING').slice(0, 50);
+      const usdtPairs = exchangeInfo.symbols.filter(s => s.symbol.endsWith('USDT') && s.status === 'TRADING');
 
       for (const pair of usdtPairs) {
         const symbol = pair.symbol;
@@ -165,7 +165,7 @@
     }
 
     buscarMoedasBinance();
-    setInterval(buscarMoedasBinance, 60000);
+    setInterval(buscarMoedasBinance, 90000);
   </script>
 </body>
 </html>
