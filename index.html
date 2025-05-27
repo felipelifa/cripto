@@ -2,11 +2,12 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <title>Scanner Cripto Ultra Aprimorado com Análise Macro</title>
+  <title>Scanner Cripto Ultra Profissional</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f9f9f9; }
     h1 { color: #333; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    button { margin-bottom: 10px; padding: 8px 16px; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
     th { background-color: #f4f4f4; }
     tr[class^="score-"] { transition: background 0.5s; }
@@ -17,155 +18,194 @@
   </style>
 </head>
 <body>
-  <h1>Scanner Cripto Ultra Aprimorado com Análise Macro</h1>
-  <p>Detector de oportunidades com sinais técnicos, contexto macro (Diário, Semanal, Mensal) e stops inteligentes. Agora analisando TODAS as moedas da Binance.</p>
+  <h1>Scanner Cripto Ultra Avançado</h1>
+  <button onclick="alternarModo()">Modo: <span id="modo">Seguro</span></button>
   <table id="tabela">
     <thead>
       <tr>
         <th>Nome</th>
         <th>Preço</th>
         <th>Score</th>
+        <th>Cenário</th>
+        <th>Entrada</th>
+        <th>Stop</th>
+        <th>Alvo</th>
         <th>Explicação</th>
       </tr>
     </thead>
     <tbody></tbody>
   </table>
-  <script>
-    const TELEGRAM_TOKEN = '7149610493:AAE5SwHYZEWCikEPa2_gXnv5BkOkaE2NDpM';
-    const TELEGRAM_CHAT_ID = '6656069569';
-    const alertados = {};
+<script>
+const TELEGRAM_TOKEN = '7149610493:AAE5SwHYZEWCikEPa2_gXnv5BkOkaE2NDpM';
+const TELEGRAM_CHAT_ID = '6656069569';
+const alertados = {};
+let modoSeguro = true;
 
-    function calcularMedia(precos, periodo) {
-      const slice = precos.slice(-periodo);
-      return slice.reduce((a, b) => a + b, 0) / periodo;
-    }
+function alternarModo() {
+  modoSeguro = !modoSeguro;
+  document.getElementById('modo').innerText = modoSeguro ? 'Seguro' : 'Livre';
+  buscarMoedas();
+}
 
-    function calcularRSI(precos) {
-      if (precos.length < 15) return 50;
-      let ganhos = 0, perdas = 0;
-      for (let i = 1; i <= 14; i++) {
-        const diff = precos[i] - precos[i - 1];
-        if (diff >= 0) ganhos += diff;
-        else perdas -= diff;
+async function fetchData(url) {
+  const res = await fetch(url);
+  return res.json();
+}
+function calcularMedia(precos, periodo) {
+  const slice = precos.slice(-periodo);
+  return slice.reduce((a, b) => a + b, 0) / periodo;
+}
+
+function detectarTendencia(prices) {
+  const ultimos = prices.slice(-10);
+  const primeiros = ultimos[0];
+  const ultimosValor = ultimos[ultimos.length - 1];
+  if (ultimosValor > primeiros) return 'Alta';
+  if (ultimosValor < primeiros) return 'Baixa';
+  return 'Lateral';
+}
+
+function calcularRSI(prices) {
+  let gains = 0, losses = 0;
+  for (let i = 1; i < 15; i++) {
+    const diff = prices[i] - prices[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
+  }
+  const rs = gains / (losses || 1);
+  return 100 - (100 / (1 + rs));
+}
+
+function ultimoFundo(prices) {
+  return Math.min(...prices.slice(-10));
+}
+
+function ultimoTopo(prices) {
+  return Math.max(...prices.slice(-10));
+}
+
+function temCandleDeForca(klines) {
+  return klines.slice(-10).some(k => {
+    const open = parseFloat(k[1]);
+    const close = parseFloat(k[4]);
+    const high = parseFloat(k[2]);
+    const low = parseFloat(k[3]);
+    const corpo = Math.abs(close - open);
+    const range = high - low;
+    return corpo > range * 0.6;
+  });
+}
+
+function calcularAmplitude(top, bottom) {
+  return ((top - bottom) / bottom) * 100;
+}
+async function buscarMoedas() {
+  const tabela = document.querySelector('#tabela tbody');
+  tabela.innerHTML = '';
+
+  const exchange = await fetchData('https://api.binance.com/api/v3/exchangeInfo');
+  const usdtPairs = exchange.symbols.filter(s => s.symbol.endsWith('USDT') && s.status === 'TRADING');
+
+  for (const pair of usdtPairs) {
+    const symbol = pair.symbol;
+    const base = pair.baseAsset;
+
+    try {
+      // Verificar Diário e Semanal
+      const [klines1d, klines1w] = await Promise.all([
+        fetchData(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=100`),
+        fetchData(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1w&limit=100`)
+      ]);
+
+      const prices1d = klines1d.map(k => parseFloat(k[4]));
+      const prices1w = klines1w.map(k => parseFloat(k[4]));
+
+      const media1d = calcularMedia(prices1d, 21);
+      const media1w = calcularMedia(prices1w, 21);
+
+      const precoAtual1d = prices1d.at(-1);
+      const precoAtual1w = prices1w.at(-1);
+
+      if (modoSeguro && (precoAtual1d < media1d || precoAtual1w < media1w)) {
+        continue;
       }
-      const rs = ganhos / (perdas || 1);
-      return 100 - (100 / (1 + rs));
-    }
 
-    function calcularMACD(precos) {
-      return calcularMedia(precos, 12) - calcularMedia(precos, 26);
-    }
+      const topoMacro = ultimoTopo(prices1d);
+      const fundoMacro = ultimoFundo(prices1d);
+      const amplitudeMacro = calcularAmplitude(topoMacro, fundoMacro);
 
-    function calcularADX_simples(precos) {
-      const diffs = precos.slice(-14).map((v, i) => Math.abs(precos[i + 1] - v));
-      return (diffs.reduce((a, b) => a + b, 0) / diffs.length) > 0.02 ? 25 : 10;
-    }
-
-    function calcularOBV(precos, volumes) {
-      let obv = 0;
-      for (let i = 1; i < precos.length; i++) {
-        if (precos[i] > precos[i - 1]) obv += volumes[i];
-        else if (precos[i] < precos[i - 1]) obv -= volumes[i];
+      if (modoSeguro && amplitudeMacro < 5) {
+        continue;
       }
-      return obv;
-    }
 
-    function ultimoFundo(precos) {
-      return Math.min(...precos.slice(-10));
-    }
+      const [klines1h, klines4h] = await Promise.all([
+        fetchData(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`),
+        fetchData(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&limit=100`)
+      ]);
 
-    function ultimoTopo(precos) {
-      return Math.max(...precos.slice(-10));
-    }
-
-    async function verificarMacro(symbol) {
-      const timeframes = ['1d', '1w', '1M'];
-      for (const tf of timeframes) {
-        const klines = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${tf}&limit=30`).then(res => res.json());
-        const prices = klines.map(k => parseFloat(k[4]));
-        if (prices.length < 21) return false;
-        const media = calcularMedia(prices, 21);
-        const precoAtual = prices.at(-1);
-        if (precoAtual < media) return false;
+      if (!temCandleDeForca(klines1h) && modoSeguro) {
+        continue;
       }
-      return true;
-    }
 
-    async function buscarMoedasBinance() {
-      const tabela = document.querySelector('#tabela tbody');
-      tabela.innerHTML = '';
+      const prices = klines1h.map(k => parseFloat(k[4]));
+      const precoAtual = prices.at(-1);
+      const topo = ultimoTopo(prices);
+      const fundo = ultimoFundo(prices);
 
-      const exchangeInfo = await fetch('https://api.binance.com/api/v3/exchangeInfo').then(res => res.json());
-      const usdtPairs = exchangeInfo.symbols.filter(s => s.symbol.endsWith('USDT') && s.status === 'TRADING');
+      const tendencia = detectarTendencia(prices);
+      const rsi = calcularRSI(prices);
 
-      for (const pair of usdtPairs) {
-        const symbol = pair.symbol;
-        const baseAsset = pair.baseAsset;
+      let score = 0;
+      const sinais = [];
+      let cenario = '';
 
-        try {
-          const macroOK = await verificarMacro(symbol);
-          if (!macroOK) continue;
+      if (tendencia === 'Alta') { score += 3; sinais.push('Tendência de Alta'); }
+      if (rsi < 35) { score += 2; sinais.push('RSI Sobrevendido'); }
+      if (precoAtual > topo * 0.98) { score += 3; sinais.push('Rompendo Topo'); }
 
-          const [ticker, klines] = await Promise.all([
-            fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`).then(res => res.json()),
-            fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=100`).then(res => res.json())
-          ]);
+      if (rsi < 35 && tendencia === 'Alta') cenario = '🔥 Pullback';
+      else if (precoAtual > topo * 0.98) cenario = '🚀 Rompimento';
+      else if (rsi < 35) cenario = '🩸 Reversão';
+      else cenario = '-';
 
-          const prices = klines.map(k => parseFloat(k[4]));
-          const volumes = klines.map(k => parseFloat(k[5]));
-          if (prices.length < 30) continue;
+      const stop = (precoAtual * 0.97).toFixed(4);
+      const alvo = (precoAtual * 1.03).toFixed(4);
 
-          const sinais = [];
-          let score = 0;
+      if (score >= 5) {
+        const linha = document.createElement('tr');
+        linha.classList.add(`score-${Math.min(score, 15)}`);
+        if (score >= 12) linha.classList.add('destaque');
 
-          if (calcularRSI(prices) < 35) { score += 2; sinais.push('RSI < 35'); }
-          if (parseFloat(ticker.quoteVolume) > 1000000) { score++; sinais.push('Volume alto'); }
-          if (calcularMACD(prices) > 0) { score += 2; sinais.push('MACD positivo'); }
-          if (calcularADX_simples(prices) > 20) { score += 2; sinais.push('ADX > 20'); }
-          if (calcularOBV(prices, volumes) > 0) { score += 2; sinais.push('OBV positivo'); }
+        linha.innerHTML = `
+          <td>${base} (${symbol})</td>
+          <td>US$ ${precoAtual.toFixed(4)}</td>
+          <td>${score}</td>
+          <td>${cenario}</td>
+          <td>US$ ${precoAtual.toFixed(4)}</td>
+          <td>US$ ${stop}</td>
+          <td>US$ ${alvo}</td>
+          <td>${sinais.join(', ')}</td>`;
 
-          const precoAtual = prices.at(-1);
-          const stop = ultimoFundo(prices).toFixed(4);
-          const alvo = (ultimoTopo(prices) * 1.02).toFixed(4);
+        tabela.appendChild(linha);
 
-          if (score >= 10) {
-            const linha = document.createElement('tr');
-            linha.classList.add(`score-${Math.min(score, 15)}`);
-            if (score >= 12) linha.classList.add('destaque');
-
-            linha.innerHTML = `
-              <td>${baseAsset} (${symbol})</td>
-              <td>US$ ${precoAtual.toFixed(4)}</td>
-              <td>${score}</td>
-              <td>${sinais.join(', ')}</td>`;
-            tabela.appendChild(linha);
-
-            const id = symbol.toLowerCase();
-            if (!alertados[id] || alertados[id] < score) {
-              alertados[id] = score;
-              const msg = `🚀 *Oportunidade de Compra Detected!*
-📈 *Moeda:* ${baseAsset} (${symbol})
-💰 *Preço atual:* US$ ${precoAtual.toFixed(4)}
-🔥 *Score:* ${score}
-📊 *Sinais:* ${sinais.join(', ')}
-🎯 *Entrada sugerida:* US$ ${precoAtual.toFixed(4)}
-🛑 *Stop:* US$ ${stop}
-🎯 *Alvo:* US$ ${alvo}`;
-              fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: msg })
-              });
-            }
-          }
-        } catch (erro) {
-          console.warn(`Erro com ${symbol}:`, erro.message);
+        const id = symbol.toLowerCase();
+        if (!alertados[id] || alertados[id] < score) {
+          alertados[id] = score;
+          const msg = `🚀 *Oportunidade!*\nMoeda: ${base} (${symbol})\nEntrada: US$ ${precoAtual.toFixed(4)}\nStop: US$ ${stop}\nAlvo: US$ ${alvo}\nScore: ${score}\nCenário: ${cenario}\nSinais: ${sinais.join(', ')}`;
+          fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: msg })
+          });
         }
       }
+    } catch (e) {
+      console.error(`Erro com ${symbol}`, e);
     }
-
-    buscarMoedasBinance();
-    setInterval(buscarMoedasBinance, 90000);
-  </script>
+  }
+}
+buscarMoedas();
+setInterval(buscarMoedas, 120000); // Atualiza a cada 2 minutos
+</script>
 </body>
 </html>
